@@ -13,7 +13,7 @@ find_package(OpenCV REQUIRED)
 
 
 #find imgui
-# set(CMAKE_PREFIX_PATH "D:/Mixar/vcpkg/installed/x64-windows/share/imgui")
+
 find_package(imgui CONFIG REQUIRED)
 
 #find glfw3
@@ -25,7 +25,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glew CONFIG REQUIRED)
 
 
-# Add your main .cpp file(s) here
+
 add_executable(
     NodeEditor main1.cpp
     tinyfiledialogs.c
@@ -36,7 +36,7 @@ add_executable(
 )
 
 
-# Include OpenCV headers and link the libraries
+
 # target_include_directories(NodeEditor PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(
     NodeEditor PRIVATE
