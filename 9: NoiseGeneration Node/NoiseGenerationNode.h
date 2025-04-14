@@ -26,6 +26,10 @@ private:
     int seed = 1234;
     float noiseStrength = 0.5f;
     
+    // Displacement parameters
+    bool useAsDisplacement = false;  // false for direct color output, true for displacement
+    float displacementStrength = 10.0f;  // Strength of displacement effect
+    
     // Noise generation methods
     cv::Mat generatePerlinNoise();
     cv::Mat generateSimplexNoise();
@@ -39,6 +43,7 @@ private:
     float grad(int hash, float x, float y);
     float noise2D(float x, float y);
     float octaveNoise(float x, float y);
+    cv::Mat applyDisplacementMap(const cv::Mat& input, const cv::Mat& noiseMap);
     
     // Permutation table for Perlin noise
     std::vector<int> p;
