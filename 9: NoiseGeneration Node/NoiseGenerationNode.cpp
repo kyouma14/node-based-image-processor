@@ -3,50 +3,62 @@
 #include <opencv2/imgproc.hpp>
 
 NoiseGenerationNode::NoiseGenerationNode(int id) : Node(id, "Noise Generation") {
+    inputs.resize(1);
     initPermutationTable();
 }
 
 void NoiseGenerationNode::initPermutationTable() {
-    // Initialize permutation table with values 0-255
     p.resize(512);
     std::iota(p.begin(), p.begin() + 256, 0);
     
-    // Shuffle first 256 elements
     std::mt19937 rng(seed);
     std::shuffle(p.begin(), p.begin() + 256, rng);
     
-    // Duplicate the array
     std::copy_n(p.begin(), 256, p.begin() + 256);
 }
 
 void NoiseGenerationNode::process() {
-    cv::Mat noiseMap;
-    switch (noiseType) {
-        case 0:
-            noiseMap = generatePerlinNoise();
-            break;
-        case 1:
-            noiseMap = generateSimplexNoise();
-            break;
-        case 2:
-            noiseMap = generateWorleyNoise();
-            break;
-    }
+    if (inputs[0]) {
+        cv::Mat input = inputs[0]->getOutput();
+        if (!input.empty()) {
+            // Update dimensions to match input image
+            width = input.cols;
+            height = input.rows;
 
-    if (colorOutput) {
-        // Convert noise to color
-        cv::Mat colorNoise;
-        cv::applyColorMap(noiseMap, colorNoise, cv::COLORMAP_JET);
-        output = colorNoise;
-    } else {
-        output = noiseMap;
-    }
+            // Generate noise map
+            cv::Mat noiseMap;
+            switch (noiseType) {
+                case 0:
+                    noiseMap = generatePerlinNoise();
+                    break;
+                case 1:
+                    noiseMap = generateSimplexNoise();
+                    break;
+                case 2:
+                    noiseMap = generateWorleyNoise();
+                    break;
+            }
 
-    if (texture) {
-        glDeleteTextures(1, &texture);
+            // Convert noise to match input image type and channels
+            cv::Mat processedNoise;
+            if (input.channels() == 3) {
+                cv::cvtColor(noiseMap, processedNoise, cv::COLOR_GRAY2BGR);
+            } else {
+                processedNoise = noiseMap;
+            }
+            processedNoise.convertTo(processedNoise, input.type());
+
+            // Add noise to input image
+            output = input.clone();
+            cv::addWeighted(input, 1.0, processedNoise, noiseStrength, 0.0, output);
+
+            // Update texture
+            if (texture) {
+                glDeleteTextures(1, &texture);
+            }
+            texture = matToTexture(output);
+        }
     }
-    texture = matToTexture(output);
-    
     dirty = false;
 }
 
@@ -59,10 +71,7 @@ cv::Mat NoiseGenerationNode::generatePerlinNoise() {
             float ny = y / scale;
             
             float value = octaveNoise(nx, ny);
-            
-            // Normalize to 0-1 range
             value = (value + 1.0f) * 0.5f;
-            // Convert to 0-255 range
             noiseMap.at<uchar>(y, x) = static_cast<uchar>(value * 255);
         }
     }
@@ -73,7 +82,6 @@ cv::Mat NoiseGenerationNode::generatePerlinNoise() {
 cv::Mat NoiseGenerationNode::generateSimplexNoise() {
     cv::Mat noiseMap(height, width, CV_8UC1);
     
-    // Simplex noise constants
     const float F2 = 0.5f * (sqrt(3.0f) - 1.0f);
     const float G2 = (3.0f - sqrt(3.0f)) / 6.0f;
     
@@ -82,19 +90,16 @@ cv::Mat NoiseGenerationNode::generateSimplexNoise() {
             float nx = x / scale;
             float ny = y / scale;
             
-            // Skew input space to determine which simplex cell we're in
             float s = (nx + ny) * F2;
             int i = floor(nx + s);
             int j = floor(ny + s);
             
-            // Unskew back to (x,y) space
             float t = (i + j) * G2;
             float X0 = i - t;
             float Y0 = j - t;
             float x0 = nx - X0;
             float y0 = ny - Y0;
             
-            // Determine which simplex we're in
             int i1, j1;
             if (x0 > y0) {
                 i1 = 1;
@@ -109,15 +114,11 @@ cv::Mat NoiseGenerationNode::generateSimplexNoise() {
             float x2 = x0 - 1.0f + 2.0f * G2;
             float y2 = y0 - 1.0f + 2.0f * G2;
             
-            // Calculate noise contributions from each corner
             float n0 = simplexCornerNoise(x0, y0, i, j);
             float n1 = simplexCornerNoise(x1, y1, i + i1, j + j1);
             float n2 = simplexCornerNoise(x2, y2, i + 1, j + 1);
             
-            // Add contributions and scale to [-1, 1]
             float value = 70.0f * (n0 + n1 + n2);
-            
-            // Scale to [0, 255]
             value = (value + 1.0f) * 0.5f;
             noiseMap.at<uchar>(y, x) = cv::saturate_cast<uchar>(value * 255);
         }
@@ -126,27 +127,13 @@ cv::Mat NoiseGenerationNode::generateSimplexNoise() {
     return noiseMap;
 }
 
-float NoiseGenerationNode::simplexCornerNoise(float x, float y, int i, int j) {
-    float t = 0.5f - x * x - y * y;
-    if (t < 0.0f) return 0.0f;
-    
-    // Hash coordinates
-    int gi = (p[(i + p[j & 255]) & 255]) % 12;
-    
-    // Calculate gradient contribution
-    t *= t;
-    return t * t * grad(gi, x, y);
-}
-
 cv::Mat NoiseGenerationNode::generateWorleyNoise() {
     cv::Mat noiseMap(height, width, CV_8UC1);
     std::vector<cv::Point2f> points;
     
-    // Generate random feature points
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     
-    // Number of feature points
     int numPoints = 20;
     for (int i = 0; i < numPoints; i++) {
         points.push_back(cv::Point2f(
@@ -155,13 +142,11 @@ cv::Mat NoiseGenerationNode::generateWorleyNoise() {
         ));
     }
     
-    // Calculate distances for each pixel
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             float minDist = FLT_MAX;
             float secondMinDist = FLT_MAX;
             
-            // Find closest feature point
             for (const auto& point : points) {
                 float dx = x - point.x;
                 float dy = y - point.y;
@@ -175,13 +160,21 @@ cv::Mat NoiseGenerationNode::generateWorleyNoise() {
                 }
             }
             
-            // Use F2-F1 difference for interesting patterns
             float value = (secondMinDist - minDist) / scale;
             noiseMap.at<uchar>(y, x) = cv::saturate_cast<uchar>(value * 255);
         }
     }
     
     return noiseMap;
+}
+
+float NoiseGenerationNode::simplexCornerNoise(float x, float y, int i, int j) {
+    float t = 0.5f - x * x - y * y;
+    if (t < 0.0f) return 0.0f;
+    
+    int gi = (p[(i + p[j & 255]) & 255]) % 12;
+    t *= t;
+    return t * t * grad(gi, x, y);
 }
 
 float NoiseGenerationNode::fade(float t) {
@@ -194,27 +187,23 @@ float NoiseGenerationNode::lerp(float a, float b, float t) {
 
 float NoiseGenerationNode::grad(int hash, float x, float y) {
     int h = hash & 15;
-    float grad_x = 1 + (h & 7);  // Gradient value for x
-    if (h & 8) grad_x = -grad_x; // Random sign
-    float grad_y = 1 + (h & 7);  // Gradient value for y
-    if (h & 8) grad_y = -grad_y; // Random sign
+    float grad_x = 1 + (h & 7);
+    if (h & 8) grad_x = -grad_x;
+    float grad_y = 1 + (h & 7);
+    if (h & 8) grad_y = -grad_y;
     return grad_x * x + grad_y * y;
 }
 
 float NoiseGenerationNode::noise2D(float x, float y) {
-    // Find unit cube that contains point
     int X = static_cast<int>(std::floor(x)) & 255;
     int Y = static_cast<int>(std::floor(y)) & 255;
     
-    // Find relative x, y of point in cube
     x -= std::floor(x);
     y -= std::floor(y);
     
-    // Compute fade curves for each of x, y
     float u = fade(x);
     float v = fade(y);
     
-    // Hash coordinates of the 4 cube corners
     int A = p[X] + Y;
     int AA = p[A];
     int AB = p[A + 1];
@@ -222,7 +211,6 @@ float NoiseGenerationNode::noise2D(float x, float y) {
     int BA = p[B];
     int BB = p[B + 1];
     
-    // Add blended results from 4 corners of cube
     return lerp(
         lerp(grad(p[AA], x, y),
              grad(p[BA], x - 1, y),
@@ -250,18 +238,51 @@ float NoiseGenerationNode::octaveNoise(float x, float y) {
 }
 
 void NoiseGenerationNode::drawUI() {
-    ImGui::Text("Noise Generation Settings");
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImVec2 size = ImGui::GetContentRegionAvail();
+    ImVec2 p1 = ImVec2(p0.x + size.x, p0.y + size.y);
 
+    // Gradient background
+    ImVec4 color1 = ImVec4(84.0f / 255.0f, 90.0f / 255.0f, 0.0f / 255.0f, 1.0f);
+    ImVec4 color2 = ImVec4(0.0f / 255.0f, 0.0f / 255.0f, 0.0f / 255.0f, 1.0f);
+
+    draw_list->AddRectFilledMultiColor(p0, p1,
+        ImColor(color1), ImColor(color1),
+        ImColor(color2), ImColor(color2));
+
+    // UI on top
+    ImGui::SetCursorScreenPos(p0);
+    
+    // Input selection
+    ImGui::Text("Input Image:");
+    if (ImGui::BeginCombo("Input##Noise", 
+        inputs[0] ? inputs[0]->getName().c_str() : "None")) {
+        
+        if (ImGui::Selectable("None", inputs[0] == nullptr)) {
+            setInput(0, nullptr);
+            markDirty();
+        }
+        
+        for (Node* node : Node::availableNodes) {
+            if (node != this) {
+                bool is_selected = (inputs[0] == node);
+                if (ImGui::Selectable(node->getName().c_str(), is_selected)) {
+                    setInput(0, node);
+                    markDirty();
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    // Noise parameters
     const char* noiseTypes[] = { "Perlin", "Simplex", "Worley" };
     if (ImGui::Combo("Noise Type", &noiseType, noiseTypes, IM_ARRAYSIZE(noiseTypes))) {
         markDirty();
     }
 
-    if (ImGui::SliderInt("Width", &width, 64, 1024)) {
-        markDirty();
-    }
-
-    if (ImGui::SliderInt("Height", &height, 64, 1024)) {
+    if (ImGui::SliderFloat("Noise Strength", &noiseStrength, 0.0f, 1.0f)) {
         markDirty();
     }
 
@@ -286,12 +307,9 @@ void NoiseGenerationNode::drawUI() {
         markDirty();
     }
 
-    if (ImGui::Checkbox("Color Output", &colorOutput)) {
-        markDirty();
-    }
-
+    // Result preview
     if (texture) {
-        ImGui::Text("Preview:");
+        ImGui::Text("Result:");
         ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(300, 300));
     }
 }
