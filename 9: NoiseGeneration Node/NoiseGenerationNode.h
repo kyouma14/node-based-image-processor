@@ -17,14 +17,14 @@ private:
     
     // Noise parameters
     int noiseType = 0;  // 0: Perlin, 1: Simplex, 2: Worley
-    int width = 512;
-    int height = 512;
+    int width = 512;    // Default width
+    int height = 512;   // Default height
     float scale = 50.0f;
     int octaves = 4;
     float persistence = 0.5f;
     float lacunarity = 2.0f;
     int seed = 1234;
-    bool colorOutput = false;  // false for displacement map, true for color
+    float noiseStrength = 0.5f;
     
     // Noise generation methods
     cv::Mat generatePerlinNoise();
