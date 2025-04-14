@@ -13,21 +13,22 @@ public:
 
 private:
     cv::Mat output;
-    cv::Mat inputImage;  // Added to store input image
     GLuint texture = 0;
     
     // Noise parameters
     int noiseType = 0;  // 0: Perlin, 1: Simplex, 2: Worley
-    int width = 512;
-    int height = 512;
+    int width = 512;    // Default width
+    int height = 512;   // Default height
     float scale = 50.0f;
     int octaves = 4;
     float persistence = 0.5f;
     float lacunarity = 2.0f;
     int seed = 1234;
-    bool colorOutput = false;  // false for displacement map, true for color
-    float noiseStrength = 0.5f;  // Added to control noise intensity
-    bool addToInput = true;  // Added to toggle between noise generation and addition
+    float noiseStrength = 0.5f;
+    
+    // Displacement parameters
+    bool useAsDisplacement = false;  // false for direct color output, true for displacement
+    float displacementStrength = 10.0f;  // Strength of displacement effect
     
     // Noise generation methods
     cv::Mat generatePerlinNoise();
@@ -42,9 +43,7 @@ private:
     float grad(int hash, float x, float y);
     float noise2D(float x, float y);
     float octaveNoise(float x, float y);
-    
-    // Added helper method for adding noise to input
-    cv::Mat addNoiseToImage(const cv::Mat& input, const cv::Mat& noise);
+    cv::Mat applyDisplacementMap(const cv::Mat& input, const cv::Mat& noiseMap);
     
     // Permutation table for Perlin noise
     std::vector<int> p;
