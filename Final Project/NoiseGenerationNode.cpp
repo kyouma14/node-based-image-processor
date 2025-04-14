@@ -39,18 +39,23 @@ void NoiseGenerationNode::process() {
                     break;
             }
 
-            // Convert noise to match input image type and channels
-            cv::Mat processedNoise;
-            if (input.channels() == 3) {
-                cv::cvtColor(noiseMap, processedNoise, cv::COLOR_GRAY2BGR);
+            if (useAsDisplacement) {
+                // Use noise as displacement map
+                output = applyDisplacementMap(input, noiseMap);
             } else {
-                processedNoise = noiseMap;
+                // Use noise as direct color addition
+                cv::Mat processedNoise;
+                if (input.channels() == 3) {
+                    cv::cvtColor(noiseMap, processedNoise, cv::COLOR_GRAY2BGR);
+                } else {
+                    processedNoise = noiseMap;
+                }
+                processedNoise.convertTo(processedNoise, input.type());
+                
+                // Add noise to input image
+                output = input.clone();
+                cv::addWeighted(input, 1.0, processedNoise, noiseStrength, 0.0, output);
             }
-            processedNoise.convertTo(processedNoise, input.type());
-
-            // Add noise to input image
-            output = input.clone();
-            cv::addWeighted(input, 1.0, processedNoise, noiseStrength, 0.0, output);
 
             // Update texture
             if (texture) {
@@ -60,6 +65,31 @@ void NoiseGenerationNode::process() {
         }
     }
     dirty = false;
+}
+
+cv::Mat NoiseGenerationNode::applyDisplacementMap(const cv::Mat& input, const cv::Mat& noiseMap) {
+    cv::Mat output = input.clone();
+    
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            // Get displacement from noise
+            float dx = (noiseMap.at<uchar>(y, x) / 255.0f - 0.5f) * displacementStrength;
+            float dy = (noiseMap.at<uchar>(y, x) / 255.0f - 0.5f) * displacementStrength;
+            
+            // Calculate source pixel coordinates
+            int sx = cv::borderInterpolate(x + static_cast<int>(dx), width, cv::BORDER_REFLECT_101);
+            int sy = cv::borderInterpolate(y + static_cast<int>(dy), height, cv::BORDER_REFLECT_101);
+            
+            // Copy pixel
+            if (input.channels() == 3) {
+                output.at<cv::Vec3b>(y, x) = input.at<cv::Vec3b>(sy, sx);
+            } else {
+                output.at<uchar>(y, x) = input.at<uchar>(sy, sx);
+            }
+        }
+    }
+    
+    return output;
 }
 
 cv::Mat NoiseGenerationNode::generatePerlinNoise() {
@@ -282,8 +312,18 @@ void NoiseGenerationNode::drawUI() {
         markDirty();
     }
 
-    if (ImGui::SliderFloat("Noise Strength", &noiseStrength, 0.0f, 1.0f)) {
+    if (ImGui::Checkbox("Use as Displacement Map", &useAsDisplacement)) {
         markDirty();
+    }
+
+    if (useAsDisplacement) {
+        if (ImGui::SliderFloat("Displacement Strength", &displacementStrength, 0.0f, 50.0f)) {
+            markDirty();
+        }
+    } else {
+        if (ImGui::SliderFloat("Noise Strength", &noiseStrength, 0.0f, 1.0f)) {
+            markDirty();
+        }
     }
 
     if (ImGui::SliderFloat("Scale", &scale, 1.0f, 100.0f)) {
